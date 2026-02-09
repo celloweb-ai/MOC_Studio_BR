@@ -16,7 +16,7 @@
 
 **The Ultimate Oil & Gas Management of Change (MOC) Ecosystem with real-time telemetry, risk analysis, and AI technical support.**
 
-[View Live Demo](https://moc-studio-dusky.vercel.app/) • [Documentation](./ABOUT.md) • [Report Issue](https://github.com/celloweb-ai/MOC_Studio/issues)
+[View Live Demo](https://moc-studio-rho.vercel.app/) • [Documentation](./ABOUT.md) • [Report Issue](https://github.com/celloweb-ai/MOC_Studio/issues)
 
 </div>
 
@@ -52,7 +52,7 @@ MOC Studio is a comprehensive web application designed to manage and track chang
 
 ## 🌐 Live Demo
 
-**Experience MOC Studio in action:** [https://moc-studio-dusky.vercel.app/](https://moc-studio-dusky.vercel.app/)
+**Experience MOC Studio in action:** [https://moc-studio-rho.vercel.app/](https://moc-studio-dusky.vercel.app/)
 
 The live demo is deployed on Vercel and showcases all features including:
 - Interactive dashboard with real-time metrics
