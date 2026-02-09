@@ -87,11 +87,14 @@ const MOCList: React.FC = () => {
 
   const [selectedMoc, setSelectedMoc] = useState<MOCRequest | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [createStep, setCreateStep] = useState(1);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isEmergencyMode, setIsEmergencyMode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [taskForm, setTaskForm] = useState<Omit<MOCTask, 'id' | 'completed' | 'status'>>({
@@ -146,13 +149,14 @@ const MOCList: React.FC = () => {
       priority: 'Critical',
       changeType: 'Mechanical',
       discipline: 'Mechanical',
-      description: '<strong>EMERGENCY PROTOCOL ACTIVATED:</strong> ',
+      description: 'EMERGENCY PROTOCOL ACTIVATED: ',
       status: 'Implementation',
       impacts: { safety: true, environmental: true, operational: true, regulatory: true, emergency: true },
       attachments: [],
       tasks: [],
       technicalAssessment: ''
     });
+    setCreateStep(1);
     setIsCreating(true);
   };
 
@@ -173,6 +177,7 @@ const MOCList: React.FC = () => {
       tasks: [],
       technicalAssessment: ''
     });
+    setCreateStep(1);
     setIsCreating(true);
   };
 
@@ -180,6 +185,7 @@ const MOCList: React.FC = () => {
     setIsEditing(true);
     setIsEmergencyMode(moc.impacts.emergency || false);
     setNewMoc({ ...moc });
+    setCreateStep(1);
     setIsCreating(true);
     setSelectedMoc(null);
   };
@@ -189,6 +195,81 @@ const MOCList: React.FC = () => {
     setIsEmergencyMode(false);
     setIsEditing(false);
     closeEmergencyMOC(); 
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    // Fix for unknown type errors by explicitly typing the file as File
+    Array.from(files).forEach((file: File) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        const newAttachment: Attachment = {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          data: base64
+        };
+        setNewMoc(prev => ({
+          ...prev,
+          attachments: [...(prev.attachments || []), newAttachment]
+        }));
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeAttachment = (index: number) => {
+    setNewMoc(prev => ({
+      ...prev,
+      attachments: prev.attachments?.filter((_, i) => i !== index)
+    }));
+  };
+
+  const estimatedRisk = useMemo(() => {
+    if (isEmergencyMode && !isEditing) return 25; 
+    let base = 0;
+    if (newMoc.priority === 'Critical') base = 15;
+    else if (newMoc.priority === 'High') base = 10;
+    else if (newMoc.priority === 'Medium') base = 5;
+    else base = 2;
+
+    const impactCount = Object.values(newMoc.impacts || {}).filter(Boolean).length;
+    return base + (impactCount * 2);
+  }, [newMoc.priority, newMoc.impacts, isEmergencyMode, isEditing]);
+
+  const handleSaveMoc = async () => {
+    setIsSubmitting(true);
+    try {
+      const id = newMoc.id || `MOC-2024-${Math.floor(Math.random() * 900 + 100)}`;
+      const mocToSave: MOCRequest = {
+        ...(newMoc as MOCRequest),
+        id,
+        createdAt: newMoc.createdAt || new Date().toISOString().split('T')[0],
+        riskScore: estimatedRisk,
+        auditLog: [
+          ...(newMoc.auditLog || []),
+          {
+            timestamp: Date.now(),
+            user: user?.name || 'System',
+            action: isEditing ? 'Modification' : 'Submission',
+            details: isEmergencyMode ? 'Emergency Override Protocol' : 'Standard Lifecycle Update'
+          }
+        ]
+      };
+      await storageService.saveMOC(mocToSave);
+      await refreshMOCs();
+      handleCloseWizard();
+      addNotification({ 
+        title: isEditing ? 'Dossier Updated' : 'Change Request Registered', 
+        message: `${mocToSave.id} has been synchronized with the technical archive.`, 
+        type: 'success' 
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteMoc = async (id: string) => {
@@ -370,6 +451,240 @@ const MOCList: React.FC = () => {
           );
         })}
       </div>
+
+      {/* Creation/Edit Wizard Modal */}
+      {isCreating && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 lg:p-10 animate-in fade-in duration-300">
+           <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md" onClick={handleCloseWizard}></div>
+           <div className="glass-panel w-full max-w-4xl h-fit max-h-[90vh] rounded-[4rem] overflow-hidden flex flex-col relative z-[110] border-white/10 shadow-2xl">
+              <header className={`px-12 py-10 border-b border-white/5 flex justify-between items-center ${isEmergencyMode ? 'bg-red-600/10' : 'bg-blue-600/10'}`}>
+                 <div className="flex items-center gap-6">
+                    <div className={`w-16 h-16 rounded-3xl flex items-center justify-center text-white shadow-xl ${isEmergencyMode ? 'bg-red-600' : 'bg-blue-600'}`}>
+                       {isEmergencyMode ? <Flame size={32} /> : isEditing ? <Edit2 size={32} /> : <Plus size={32} strokeWidth={3} />}
+                    </div>
+                    <div>
+                       <h3 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight uppercase">
+                          {isEmergencyMode ? 'Emergency Fast-Track' : isEditing ? 'Modify Technical Dossier' : 'New Change Request'}
+                       </h3>
+                       <div className="flex items-center gap-3 mt-1">
+                          <span className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em]">Lifecycle Wizard</span>
+                          <span className="text-slate-500">•</span>
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Step {createStep} of 3</span>
+                       </div>
+                    </div>
+                 </div>
+                 <button onClick={handleCloseWizard} className="p-4 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-all"><X size={32} /></button>
+              </header>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-12 space-y-10">
+                 {/* Step Indicator */}
+                 <div className="flex justify-between items-center px-10 relative">
+                    <div className="absolute left-10 right-10 top-1/2 h-0.5 bg-white/5 -z-10"></div>
+                    {[1, 2, 3].map(s => (
+                       <div key={s} className={`w-10 h-10 rounded-full border-4 flex items-center justify-center font-black transition-all duration-500 ${
+                          createStep >= s ? 'bg-blue-600 border-blue-500 text-white scale-110 shadow-lg shadow-blue-600/20' : 'bg-slate-900 border-white/5 text-slate-600'
+                       }`}>
+                          {createStep > s ? <Check size={18} strokeWidth={4} /> : s}
+                       </div>
+                    ))}
+                 </div>
+
+                 {createStep === 1 && (
+                    <div className="space-y-8 animate-in slide-in-from-right-4">
+                       <div className="space-y-3">
+                          <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 ml-1">Technical Title</label>
+                          <input 
+                            value={newMoc.title}
+                            onChange={(e) => setNewMoc({...newMoc, title: e.target.value})}
+                            placeholder="Briefly state the engineering intent..."
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl py-5 px-8 text-lg font-black text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-blue-500/20 transition-all uppercase"
+                          />
+                       </div>
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          <div className="space-y-3">
+                             <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 ml-1">Technical Discipline</label>
+                             <select 
+                               value={newMoc.discipline}
+                               onChange={(e) => setNewMoc({...newMoc, discipline: e.target.value})}
+                               className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl py-5 px-8 text-sm font-black text-slate-900 dark:text-white outline-none"
+                             >
+                                <option value="Mechanical">Mechanical</option>
+                                <option value="Process">Process</option>
+                                <option value="Electrical">Electrical</option>
+                                <option value="Instrumentation">Instrumentation</option>
+                                <option value="Civil">Civil</option>
+                                <option value="Personnel">Personnel</option>
+                                <option value="Procedure">Procedure</option>
+                             </select>
+                          </div>
+                          <div className="space-y-3">
+                             <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 ml-1">Asset Facility</label>
+                             <select 
+                               value={newMoc.facility}
+                               onChange={(e) => setNewMoc({...newMoc, facility: e.target.value})}
+                               className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl py-5 px-8 text-sm font-black text-slate-900 dark:text-white outline-none"
+                             >
+                                {FACILITIES.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+                             </select>
+                          </div>
+                       </div>
+                    </div>
+                 )}
+
+                 {createStep === 2 && (
+                    <div className="space-y-10 animate-in slide-in-from-right-4">
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                          <div className="space-y-6">
+                             <h4 className="text-xs font-black text-blue-500 uppercase tracking-[0.3em]">Impact Matrix</h4>
+                             <div className="grid grid-cols-1 gap-4">
+                                {Object.entries(newMoc.impacts || {}).map(([key, val]) => (
+                                   <button 
+                                      key={key}
+                                      type="button"
+                                      onClick={() => setNewMoc({...newMoc, impacts: {...newMoc.impacts!, [key]: !val}})}
+                                      className={`flex items-center justify-between p-5 rounded-2xl border transition-all ${val ? 'bg-blue-600/10 border-blue-500 text-blue-400 shadow-lg' : 'bg-slate-900 border-white/5 text-slate-500 hover:border-white/10'}`}
+                                   >
+                                      <span className="text-[11px] font-black uppercase tracking-widest">{key}</span>
+                                      {val ? <CheckCircle size={18} /> : <div className="w-4 h-4 rounded-full border border-white/20"></div>}
+                                   </button>
+                                ))}
+                             </div>
+                          </div>
+                          <div className="space-y-8 flex flex-col justify-center text-center">
+                             <div>
+                                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Calculated Risk Index</div>
+                                <div className={`text-7xl font-black mb-2 ${getRiskColor(estimatedRisk).replace('bg-', 'text-')}`}>{estimatedRisk}</div>
+                                <div className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">Composite Score</div>
+                             </div>
+                             <div className="p-6 bg-slate-900 rounded-[2rem] border border-white/5 space-y-3">
+                                <div className="flex items-center gap-2 justify-center text-blue-500">
+                                   <ShieldCheck size={16} />
+                                   <span className="text-[9px] font-black uppercase tracking-widest">Governance Rule</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 leading-relaxed italic">
+                                   {estimatedRisk >= 15 ? 'Critical Threshold: High-level review and HSE verification required.' : 'Standard Profile: Peer review and technical lead clearance required.'}
+                                </p>
+                             </div>
+                          </div>
+                       </div>
+                    </div>
+                 )}
+
+                 {createStep === 3 && (
+                    <div className="space-y-10 animate-in slide-in-from-right-4">
+                       <div className="space-y-3">
+                          <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 ml-1">Engineering Scope Description</label>
+                          <textarea 
+                            rows={6}
+                            value={newMoc.description}
+                            onChange={(e) => setNewMoc({...newMoc, description: e.target.value})}
+                            placeholder="Detailed technical rationale for this change..."
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-[2rem] py-6 px-8 text-sm leading-relaxed text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-blue-500/20 transition-all resize-none"
+                          />
+                       </div>
+
+                       <div className="space-y-4">
+                          <div className="flex items-center justify-between px-1">
+                             <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">Supporting Documentation</label>
+                             <button 
+                               type="button"
+                               onClick={() => fileInputRef.current?.click()}
+                               className="flex items-center gap-2 text-blue-500 hover:text-blue-400 text-[10px] font-black uppercase tracking-widest transition-colors"
+                             >
+                                <Upload size={14} /> Attach Files
+                             </button>
+                             <input 
+                               type="file" 
+                               ref={fileInputRef} 
+                               className="hidden" 
+                               multiple 
+                               onChange={handleFileChange}
+                             />
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             {newMoc.attachments?.map((file, idx) => (
+                                <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl group">
+                                   <div className="flex items-center gap-3 min-w-0">
+                                      <div className="p-2 bg-blue-500/10 text-blue-500 rounded-lg">
+                                         <FileText size={16} />
+                                      </div>
+                                      <div className="min-w-0">
+                                         <p className="text-xs font-black text-slate-900 dark:text-white truncate">{file.name}</p>
+                                         <p className="text-[9px] font-bold text-slate-400 uppercase">{(file.size / 1024).toFixed(1)} KB</p>
+                                      </div>
+                                   </div>
+                                   <button 
+                                      type="button" 
+                                      onClick={() => removeAttachment(idx)}
+                                      className="p-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                                   >
+                                      <Trash2 size={14} />
+                                   </button>
+                                </div>
+                             ))}
+                             {(newMoc.attachments?.length || 0) === 0 && (
+                                <div 
+                                  onClick={() => fileInputRef.current?.click()}
+                                  className="col-span-full py-8 border-2 border-dashed border-slate-200 dark:border-white/5 rounded-3xl flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5 transition-all group"
+                                >
+                                   <Paperclip size={24} className="text-slate-300 group-hover:text-blue-500 transition-colors mb-2" />
+                                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No documents attached. Click to upload technical data.</p>
+                                </div>
+                             )}
+                          </div>
+                       </div>
+
+                       <div className="p-8 bg-blue-600/5 border border-dashed border-blue-500/20 rounded-[2rem] flex items-center gap-6">
+                          <div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-500 shrink-0">
+                             <FileCheck size={24} />
+                          </div>
+                          <p className="text-[11px] text-slate-500 font-bold leading-relaxed uppercase tracking-tight">
+                             Final Commitment: By submitting this technical dossier, you affirm that the engineering scope aligns with API RP 754 and facility safety standards.
+                          </p>
+                       </div>
+                    </div>
+                 )}
+              </div>
+
+              <footer className="px-12 py-8 border-t border-white/5 flex justify-between items-center bg-slate-900/60 backdrop-blur-2xl">
+                 <button 
+                  onClick={handleCloseWizard}
+                  className="px-8 py-4 rounded-2xl font-black text-slate-500 hover:text-white transition-all text-[11px] uppercase tracking-widest"
+                 >
+                    Discard Changes
+                 </button>
+                 <div className="flex gap-4">
+                    {createStep > 1 && (
+                       <button 
+                        onClick={() => setCreateStep(createStep - 1)}
+                        className="px-10 py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl font-black uppercase tracking-widest text-[11px] flex items-center gap-3 transition-all"
+                       >
+                          <ArrowLeft size={16} /> Back
+                       </button>
+                    )}
+                    <button 
+                      onClick={() => createStep < 3 ? setCreateStep(createStep + 1) : handleSaveMoc()}
+                      disabled={isSubmitting || !newMoc.title}
+                      className={`px-12 py-4 rounded-2xl font-black uppercase tracking-widest text-[11px] flex items-center gap-3 shadow-xl transition-all active:scale-95 disabled:opacity-50 ${isEmergencyMode ? 'bg-red-600 hover:bg-red-500 shadow-red-500/20' : 'bg-blue-600 hover:bg-blue-500 shadow-blue-500/20'} text-white`}
+                    >
+                       {isSubmitting ? (
+                          <>
+                             <Loader2 size={16} className="animate-spin" />
+                             Processing...
+                          </>
+                       ) : (
+                          <>
+                             {createStep === 3 ? (isEditing ? 'Commit Update' : 'Synchronize Dossier') : 'Advance Step'}
+                             <ArrowRight size={16} />
+                          </>
+                       )}
+                    </button>
+                 </div>
+              </footer>
+           </div>
+        </div>
+      )}
 
       {selectedMoc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 lg:p-10 animate-in fade-in duration-300">
@@ -555,6 +870,23 @@ const MOCList: React.FC = () => {
                     </div>
                   </div>
                 )}
+             </div>
+          </div>
+        </div>
+      )}
+
+      {isDeleting && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md" onClick={() => setIsDeleting(null)}></div>
+          <div className="glass-panel w-full max-w-md rounded-[3.5rem] p-12 relative z-10 shadow-2xl border-white/10 text-center animate-in zoom-in">
+             <AlertTriangle size={48} className="mx-auto text-red-500 mb-8" />
+             <h3 className="text-3xl font-black mb-4 text-slate-900 dark:text-white uppercase">Purge Dossier?</h3>
+             <p className="text-slate-500 dark:text-slate-400 text-xs mb-10 leading-relaxed font-bold uppercase tracking-widest">
+                Attention: This action is irreversible. All technical records, audit trails, and linked task data for {isDeleting} will be permanently archived.
+             </p>
+             <div className="flex gap-4">
+                <button onClick={() => setIsDeleting(null)} className="flex-1 py-5 rounded-2xl font-black uppercase tracking-widest text-[11px] bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 border border-slate-200 dark:border-white/5">Abort</button>
+                <button onClick={() => handleDeleteMoc(isDeleting)} className="flex-1 py-5 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl hover:bg-red-500 transition-all">Confirm Purge</button>
              </div>
           </div>
         </div>

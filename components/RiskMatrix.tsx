@@ -1,10 +1,11 @@
+
 import React, { useState } from 'react';
-import { AlertTriangle, Download, Info, Shield, Loader2, CheckCircle } from 'lucide-react';
+import { AlertTriangle, Download, Info, Shield, Loader2, CheckCircle, FileText } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { TRANSLATIONS } from '../constants';
 
 const RiskMatrix: React.FC = () => {
-  const { language } = useApp();
+  const { language, user } = useApp();
   const t = TRANSLATIONS[language];
   const [selected, setSelected] = useState<{p: number, s: number} | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -30,17 +31,69 @@ const RiskMatrix: React.FC = () => {
     setIsExporting(true);
     setExportStatus('idle');
     
-    // Simulate generation delay for technical document compilation
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Simulate complex generation delay for technical document compilation
+    await new Promise(resolve => setTimeout(resolve, 1800));
     
-    setIsExporting(false);
-    setExportStatus('success');
-    
-    // Reset success icon after 3 seconds to return to default state
-    setTimeout(() => setExportStatus('idle'), 3000);
-    
-    // In a real production environment, this would trigger a Blob-based file download
-    console.log('Technical Export Initialized:', selected ? `Specific Matrix Detail P:${selected.p} S:${selected.s}` : 'General Matrix Overview');
+    try {
+      const timestamp = new Date().toISOString();
+      const score = selected ? selected.p * selected.s : 'N/A';
+      const grade = selected ? getRiskLevelLabel(selected.p, selected.s) : 'Global Overview';
+      
+      const reportContent = `
+==================================================
+MOC STUDIO | TECHNICAL RISK ASSESSMENT REPORT
+==================================================
+Generated on: ${timestamp}
+Authorized by: ${user?.name || 'System Administrator'}
+Clearance Role: ${user?.role || 'Engineer'}
+
+REPORT PARAMETERS:
+--------------------------------------------------
+${selected ? `Selected Probability (P): ${selected.p}
+Selected Severity (S): ${selected.s}
+Composite Risk Score: ${score}
+Risk Classification: ${grade.toUpperCase()}` : 'Scope: Global Matrix Infrastructure Overview'}
+
+GOVERNANCE STANDARDS:
+--------------------------------------------------
+* API RP 754: Process Safety Performance Indicators
+* ISO 31000: Risk Management Framework
+* NR-13: Pressurized Equipment Compliance
+
+REQUIRED SIGN-OFFS BASED ON SCORE:
+--------------------------------------------------
+${selected && selected.p * selected.s >= 15 
+  ? "[CRITICAL] REQUIRES HSE DIRECTOR & TECHNICAL MANAGER APPROVAL" 
+  : selected && selected.p * selected.s >= 8 
+  ? "[HIGH] REQUIRES FORMAL PEER REVIEW & DEPT HEAD APPROVAL"
+  : "[MANAGED] STANDARD OPERATIONAL CLEARANCE"}
+
+DIGITAL SIGNATURE:
+--------------------------------------------------
+VERIFIED BY MOC STUDIO GOVERNANCE ENGINE
+HASH: ${Math.random().toString(36).substring(2, 15).toUpperCase()}
+==================================================
+      `;
+
+      const blob = new Blob([reportContent], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `MOC_Risk_Report_${selected ? `Score_${score}` : 'Global'}_${Date.now()}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setIsExporting(false);
+      setExportStatus('success');
+      
+      // Reset success icon after 3 seconds
+      setTimeout(() => setExportStatus('idle'), 3000);
+    } catch (error) {
+      console.error('Export failed:', error);
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -57,9 +110,9 @@ const RiskMatrix: React.FC = () => {
         <button 
           onClick={handleExport}
           disabled={isExporting}
-          className={`px-6 py-3 rounded-2xl flex items-center space-x-2 transition-all border font-black uppercase text-[11px] tracking-widest shadow-lg active:scale-95 ${
+          className={`px-8 py-4 rounded-2xl flex items-center space-x-3 transition-all border font-black uppercase text-[11px] tracking-widest shadow-xl active:scale-95 ${
             exportStatus === 'success' 
-              ? 'bg-emerald-500 border-emerald-400 text-white shadow-emerald-500/20' 
+              ? 'bg-emerald-600 border-emerald-500 text-white shadow-emerald-500/20' 
               : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100 border-slate-200 dark:border-white/20'
           }`}
         >
@@ -68,9 +121,9 @@ const RiskMatrix: React.FC = () => {
           ) : exportStatus === 'success' ? (
             <CheckCircle size={18} />
           ) : (
-            <Download size={18} />
+            <FileText size={18} />
           )}
-          <span>{isExporting ? 'Generating...' : exportStatus === 'success' ? 'Downloaded' : t.exportPdf}</span>
+          <span>{isExporting ? 'Compiling Dossier...' : exportStatus === 'success' ? 'Report Downloaded' : t.exportPdf}</span>
         </button>
       </div>
 
